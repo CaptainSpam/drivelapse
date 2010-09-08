@@ -23,6 +23,7 @@ import android.graphics.Rect;
 import android.graphics.Paint.Style;
 import android.location.Address;
 import android.location.Geocoder;
+import android.location.Location;
 import android.util.Log;
 
 /**
@@ -71,19 +72,19 @@ public class Annotator extends AssemblyLine.Station {
         // into the stopper command.  take() will block the thread until there's
         // something there.
         do {
-            AssemblyLine.WorkOrder curPic = null;
+            AssemblyLine.WorkOrder order = null;
             try {
                 // Block!
-                curPic = mOrderQueue.take();
+                order = mOrderQueue.take();
             } catch (InterruptedException e) {
                 // INTERRUPTION!  Assume this means we stop.
                 lastType = AssemblyLine.OrderType.END_QUEUE;
                 continue;
             }
-            lastType = curPic.getType();
+            lastType = order.getType();
             if(lastType == AssemblyLine.OrderType.END_QUEUE) continue;
             
-            Log.d(DEBUG_TAG, "Annotator thread has an image!  It's at " + curPic.getFileLocation());
+            Log.d(DEBUG_TAG, "Annotator thread has an image!  It's at " + order.getFileLocation());
             
             // Right, we've got a picture!  Let's annotate!  First, get data.
             List<Address> addresses = null;
@@ -93,11 +94,12 @@ public class Annotator extends AssemblyLine.Station {
             while(addresses == null) {
                 try {
                     addresses = mGeocoder.getFromLocation(
-                            curPic.getGpsLocation().getLatitude(),
-                            curPic.getGpsLocation().getLongitude(),
+                            order.getGpsLocation().getLatitude(),
+                            order.getGpsLocation().getLongitude(),
                             1);
                 } catch (IOException e) {
                     e.printStackTrace();
+                    Log.i(DEBUG_TAG, "Geocoder lookup failure, sleeping...");
                     // Presumably, an IOException means we can't get a data
                     // connection (or whatever the Geocoder backend communicates
                     // with is dead).  So, sleep for a bit and try it again.
@@ -110,14 +112,16 @@ public class Annotator extends AssemblyLine.Station {
                         // What?  We were interrupted, too?!?  Geez.  Okay,
                         // fine, at this point, assume we've got nothing and
                         // don't know where we are.
+                        Log.w(DEBUG_TAG, "Geocoder sleep timeout interrupted!  Assuming this means to stop...");
+                        lastType = AssemblyLine.OrderType.END_QUEUE;
                         break;
                     }
                 }
             }
 
-            // Now, let's crack that image open and get some data.
-            Bitmap origBitmap = BitmapFactory.decodeFile(curPic.getFileLocation());
-            Bitmap bitmap = Bitmap.createScaledBitmap(origBitmap, origBitmap.getWidth() / 2, origBitmap.getHeight() / 2, false);
+            // Now, let's crack that image open and get some tasty, tasty data.
+            Bitmap origBitmap = BitmapFactory.decodeFile(order.getFileLocation());
+            Bitmap bitmap = origBitmap.copy(origBitmap.getConfig(), true);
             origBitmap.recycle();
             origBitmap = null;
             Canvas canvas = new Canvas(bitmap);
@@ -125,9 +129,8 @@ public class Annotator extends AssemblyLine.Station {
             // If we haven't made the text paint yet, we can use the bitmap to
             // decide how big to make it.
             if(mTextPaint == null) {
-                // TODO: Figure this out later.  I'm assuming a 1024x768
-                // picture, half the default from the Nexus One, just for
-                // testing.
+                // TODO: Determine if I want to tweak the sizes based on the
+                // size of the incoming image.
                 mTextPaint = new Paint();
                 mTextPaint.setColor(mContext.getResources().getColor(R.color.annotation_textcolor));
                 mTextPaint.setTextSize(24);
@@ -135,30 +138,23 @@ public class Annotator extends AssemblyLine.Station {
                 mBoxHeight = 32;
                 mBoxPadding = 4;
                 mBoxMargin = 16;
+                
             }
             
-            drawLeftTextBox(canvas, UnitConverter.makeFullCoordinateString(mContext, curPic.getGpsLocation(), false, UnitConverter.OUTPUT_LONG), 0);
-            
-            Calendar date = Calendar.getInstance();
-            date.setTimeInMillis(curPic.getGpsLocation().getTime());
-            
-            drawRightTextBox(canvas, DateFormat.getDateTimeInstance(DateFormat.LONG, DateFormat.MEDIUM).format(date.getTime()), 0);
+            drawCoordinates(canvas, order.getGpsLocation());
+            drawDateAndTime(canvas, order.getGpsLocation());
             
             if(addresses != null && !addresses.isEmpty()) {
                 Log.d(DEBUG_TAG, "Address retrieved, now annotating...");
                 
                 Address place = addresses.get(0);
                 
-                // FEWER DETAILS
-//                drawLeftTextBox(canvas, place.getThoroughfare(), 2);
-//                drawLeftTextBox(canvas, place.getLocality() + ", " + place.getAdminArea(), 1);
-                
-                // FULL DETAILS
-                drawLeftTextBox(canvas, place.getAddressLine(0), 2);
-                drawLeftTextBox(canvas, place.getAddressLine(1), 1);
+                drawFullAddress(canvas, place);
+            } else {
+                drawUnknownAddress(canvas);
             }
             
-            File output = new File(curPic.getFileLocation());
+            File output = new File(order.getFileLocation());
             
             FileOutputStream ostream = null;
             try {
@@ -170,9 +166,12 @@ public class Annotator extends AssemblyLine.Station {
                 e.printStackTrace();
             }
             bitmap.recycle();
+            bitmap = null;
+            
+            finishOrder(order);
         } while(lastType != AssemblyLine.OrderType.END_QUEUE);
         
-        Log.d(DEBUG_TAG, "ENDING THREAD NOW...");
+        Log.d(DEBUG_TAG, "Got an end request, ending the thread now...");
     }
     
     private void drawLeftTextBox(Canvas canvas, String text, int position) {
@@ -213,6 +212,32 @@ public class Annotator extends AssemblyLine.Station {
                 canvas.getWidth() - mBoxPadding - textBounds.right - mBoxMargin,
                 baseline - (2 * mBoxPadding) - (mBoxHeight * (position - 1)),
                 mTextPaint);
+    }
+    
+    private void drawFullAddress(Canvas canvas, Address addr) {
+        drawLeftTextBox(canvas, addr.getAddressLine(0), 2);
+        drawLeftTextBox(canvas, addr.getAddressLine(1), 1);
+    }
+    
+    private void drawLessAddress(Canvas canvas, Address addr) {
+        drawLeftTextBox(canvas, addr.getThoroughfare(), 2);
+        drawLeftTextBox(canvas, addr.getLocality() + ", " + addr.getAdminArea(), 1);
+    }
+    
+    private void drawUnknownAddress(Canvas canvas) {
+        // This is used if the Geocoder lookup fails completely.
+        drawLeftTextBox(canvas, mContext.getResources().getString(R.string.annotation_location_unknown), 1);
+    }
+    
+    private void drawCoordinates(Canvas canvas, Location loc) {
+        drawLeftTextBox(canvas, UnitConverter.makeFullCoordinateString(mContext, loc, false, UnitConverter.OUTPUT_LONG), 0);
+    }
+    
+    private void drawDateAndTime(Canvas canvas, Location loc) {
+        Calendar date = Calendar.getInstance();
+        date.setTimeInMillis(loc.getTime());
+        
+        drawRightTextBox(canvas, DateFormat.getDateTimeInstance(DateFormat.LONG, DateFormat.MEDIUM).format(date.getTime()), 0);
     }
 
     @Override

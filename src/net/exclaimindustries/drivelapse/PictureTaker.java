@@ -24,7 +24,7 @@ public class PictureTaker {
     
     private String mPackageName;
     private String mDirName;
-    private Annotator mAnnotator;
+    private AssemblyLine mAl;
 
     public PictureTaker(String packageName) {
         mPackageName = packageName;
@@ -38,10 +38,10 @@ public class PictureTaker {
      * 
      * @return true if the directory was created, false if not
      */
-    public boolean restart(Annotator annotator) {
-        mAnnotator = annotator;
+    public boolean restart(AssemblyLine al) {
+        mAl = al;
         // Create the directory.
-        mDirName = "/sdcard/" + mPackageName + "/" + (System.currentTimeMillis() / 1000) + "/";
+        mDirName = "/sdcard/" + mPackageName + "/DriveLapse-" + (System.currentTimeMillis() / 1000) + "/";
         boolean success = (new File(mDirName)).mkdirs();
         
         if(success)
@@ -60,7 +60,7 @@ public class PictureTaker {
      * @return a SinglePicture, of course
      */
     public SinglePicture getPictureHandle(Location loc) {
-        return new SinglePicture(loc, mDirName);
+        return new SinglePicture(loc, mDirName, mAl);
     }
     
     /**
@@ -74,15 +74,17 @@ public class PictureTaker {
         
         private Location mLocation;
         private String mDirName;
+        private AssemblyLine mmAl;
         
         /**
          * Constructs a SinglePicture with the given Location, ready for action.
          * 
          * @param loc Location at which this picture took place.
          */
-        private SinglePicture(Location loc, String dirName) {
+        private SinglePicture(Location loc, String dirName, AssemblyLine al) {
             mLocation = loc;
             mDirName = dirName;
+            mmAl = al;
         }
 
         @Override
@@ -90,18 +92,14 @@ public class PictureTaker {
             String filename = mDirName + mLocation.getTime() + ".jpg";
             File output = new File(filename);
             try {
-                // Write it out to SD as soon as possible, then pass it off to the
-                // annotator.  We're working from disk in this case because this is
-                // a phone.  We can't assume we can just keep grabbing RAM from
-                // swap.  It's an embedded device, after all, and RAM can be very
-                // limited.  The annotator just gets a string telling it where the
-                // file is located.
+                // Write it out to SD as soon as possible, then pass the file
+                // location and the GPS location off to the AssemblyLine.
                 FileOutputStream ostream = new FileOutputStream(output);
                 ostream.write(data);
                 ostream.close();
                 
-                // Then, add to the annotator!
-                mAnnotator.addPicture(new Annotator.IncomingPicture(filename, mLocation));
+                AssemblyLine.WorkOrder order = new AssemblyLine.WorkOrder(filename, mLocation);
+                mmAl.addWorkOrder(order);
             } catch (Exception e) {
                 Log.e(DEBUG_TAG, "EXCEPTION!");
                 e.printStackTrace();

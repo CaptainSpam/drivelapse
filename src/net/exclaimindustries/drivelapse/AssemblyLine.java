@@ -238,6 +238,7 @@ public class AssemblyLine implements Runnable {
             last.getNextStation().addOrder(order);
         } else {
             // Otherwise, we're done!
+            Log.d(DEBUG_TAG, "WorkOrder complete!");
         }
             
     }

@@ -84,7 +84,7 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
                 
                 mAnnotator = new Annotator(mAssembly, DriveLapse.this);
                 mAssembly.addStation(mAnnotator);
-                mPictureTaker.restart(mAnnotator);
+                mPictureTaker.restart(mAssembly);
                 mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 100, DriveLapse.this);
                 mGoButton.setEnabled(false);
                 mCount = 0;

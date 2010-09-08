@@ -21,6 +21,16 @@ import android.hardware.Camera;
 
 public class DriveLapse extends Activity implements LocationListener, SurfaceHolder.Callback {
     private static final String DEBUG_TAG = "DriveLapse";
+    
+    private static final String SAVE_ASSEMBLY_LINE = "AssemblyLine";
+    private static final String SAVE_PICTURE_TAKER = "PictureTaker";
+    private static final String SAVE_STATE = "State";
+    
+    private static final int STATE_STOP = 0;
+    private static final int STATE_RECORD = 1;
+    private static final int STATE_PAUSE = 2;
+    
+    private int mLastState;
 
     private LocationManager mLocationManager;
     
@@ -38,12 +48,10 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
     private Camera mCamera;
     
     private PictureTaker mPictureTaker;
-    private Annotator mAnnotator;
+    private AssemblyLine mAssembly;
     
     private ScrollView mScroller;
     private SurfaceView mSurface;
-    
-    private AssemblyLine mAssembly;
     
     /** Called when the activity is first created. */
     @Override
@@ -58,6 +66,8 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
         mTextView = (TextView)findViewById(R.id.textstuff);
         mScroller = (ScrollView)findViewById(R.id.debugscroller);
         mSurface = (SurfaceView)findViewById(R.id.camerasurface);
+        
+        mLastState = STATE_STOP;
         
         SurfaceHolder holder = mSurface.getHolder();
         holder.addCallback(this);
@@ -82,8 +92,8 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
                 
                 mAssembly = new AssemblyLine();
                 
-                mAnnotator = new Annotator(mAssembly, DriveLapse.this);
-                mAssembly.addStation(mAnnotator);
+                mAssembly.addStation(new Annotator(mAssembly, DriveLapse.this));
+                mAssembly.start();
                 mPictureTaker.restart(mAssembly);
                 mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 100, DriveLapse.this);
                 mGoButton.setEnabled(false);
@@ -113,10 +123,45 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
         
         // Grab a LocationManager!
         mLocationManager = (LocationManager)getSystemService(Context.LOCATION_SERVICE);
+        
+        // Good.  Now, repopulate mAssembly and mPictureTaker if need be.  If
+        // need DOES be, chances are we'll need to reset the go button, too.
+        if(savedInstanceState != null
+                && savedInstanceState.containsKey(SAVE_PICTURE_TAKER)
+                && savedInstanceState.containsKey(SAVE_ASSEMBLY_LINE)
+                && savedInstanceState.containsKey(SAVE_STATE)) {
+            mAssembly = (AssemblyLine)savedInstanceState.get(SAVE_ASSEMBLY_LINE);
+            mPictureTaker = (PictureTaker)savedInstanceState.get(SAVE_PICTURE_TAKER);
+            
+            // The state determines if we should be looking for locations right
+            // away.
+            mLastState = savedInstanceState.getInt(SAVE_STATE);
+            
+            if(mLastState == STATE_RECORD) {
+                // We're recording!  LocationManager, back to work!
+                mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 100, this);
+                mGoButton.setEnabled(false);
+            }
+            
+            if(mLastState == STATE_STOP) {
+                mGoButton.setEnabled(true);
+            }
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        // TODO Auto-generated method stub
+        super.onSaveInstanceState(outState);
+     
+        // Right!  Save everything!
+        outState.putSerializable(SAVE_ASSEMBLY_LINE, mAssembly);
+        outState.putSerializable(SAVE_PICTURE_TAKER, mPictureTaker);
     }
 
     @Override
     public void finish() {
+        // Make sure the assembly line completes itself.
         if(mAssembly != null) mAssembly.addEndOrder();
         super.finish();
     }

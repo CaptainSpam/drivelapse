@@ -26,8 +26,11 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
     private static final String SAVE_PICTURE_TAKER = "PictureTaker";
     private static final String SAVE_STATE = "State";
     
+    /** The recording is stopped entirely.  Display the Go button. */
     private static final int STATE_STOP = 0;
+    /** We're recording!  Display the Pause button. */
     private static final int STATE_RECORD = 1;
+    /** We've paused.  Display both the Go and Stop buttons. */
     private static final int STATE_PAUSE = 2;
     
     private int mLastState;
@@ -36,6 +39,7 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
     
     private Button mGoButton;
     private Button mStopButton;
+    private Button mPauseButton;
     
     private TextView mTextView;
     
@@ -63,6 +67,7 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
         
         mGoButton = (Button)findViewById(R.id.gobutton);
         mStopButton = (Button)findViewById(R.id.stopbutton);
+        mPauseButton = (Button)findViewById(R.id.pausebutton);
         mTextView = (TextView)findViewById(R.id.textstuff);
         mScroller = (ScrollView)findViewById(R.id.debugscroller);
         mSurface = (SurfaceView)findViewById(R.id.camerasurface);
@@ -85,22 +90,28 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
             @Override
             public void onClick(View v) {
                 // First test: Every 100 meters.  So... um... 400 feet or so?
+                String logString;
                 
-                // We create a new AssemblyLine and set of Stations every time
-                // we start.
-                if(mAssembly != null) mAssembly.addEndOrder();
+                // If we were stopped, make a new AssemblyLine.
+                if(mLastState == STATE_STOP) {
+                    if(mAssembly != null) mAssembly.addEndOrder();
+                    
+                    mAssembly = new AssemblyLine();
+                    
+                    mAssembly.addStation(new Annotator(mAssembly, DriveLapse.this));
+                    mAssembly.start();
+                    mPictureTaker.restart(mAssembly);
+                    mCount = 0;
+                    logString = "\n\n--- START! ---\n";
+                } else {
+                    logString = "--- RESUME! ---\n";
+                }
                 
-                mAssembly = new AssemblyLine();
-                
-                mAssembly.addStation(new Annotator(mAssembly, DriveLapse.this));
-                mAssembly.start();
-                mPictureTaker.restart(mAssembly);
+                switchButtonStates(STATE_RECORD);
+
                 mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 100, DriveLapse.this);
-                mGoButton.setEnabled(false);
-                mCount = 0;
                 if(!mWakeLock.isHeld()) mWakeLock.acquire();
-                mTextView.append("\n\n--- START ---\n");
-                mScroller.fullScroll(View.FOCUS_DOWN);
+                writeLog(logString);
             }
         });
         
@@ -109,12 +120,25 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
             @Override
             public void onClick(View v) {
                 // STOP
+                switchButtonStates(STATE_STOP);
                 mLocationManager.removeUpdates(DriveLapse.this);
                 if(mAssembly != null) mAssembly.addEndOrder();
-                mGoButton.setEnabled(true);
                 if(mWakeLock.isHeld()) mWakeLock.release();
-                mTextView.append("--- END ---\nTotal clicks: " + mCount + "\n");
-                mScroller.fullScroll(View.FOCUS_DOWN);
+                writeLog("--- END ---\nTotal clicks: " + mCount + "\n");
+            }
+            
+        });
+        
+        mPauseButton.setOnClickListener(new OnClickListener() {
+
+            @Override
+            public void onClick(View v) {
+                // PAUSE
+                switchButtonStates(STATE_PAUSE);
+                mLocationManager.removeUpdates(DriveLapse.this);
+                // We don't add in the end order yet.  We just pause updates.
+                if(mWakeLock.isHeld()) mWakeLock.release();
+                writeLog("--- PAUSED ---\n");
             }
             
         });
@@ -135,17 +159,19 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
             
             // The state determines if we should be looking for locations right
             // away.
-            mLastState = savedInstanceState.getInt(SAVE_STATE);
+            int state = savedInstanceState.getInt(SAVE_STATE);
             
-            if(mLastState == STATE_RECORD) {
-                // We're recording!  LocationManager, back to work!
+            if(state == STATE_RECORD) {
+                // We're recording!  LocationManager, back to work!  We need to
+                // get started immediately!
                 mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 100, this);
-                mGoButton.setEnabled(false);
             }
             
-            if(mLastState == STATE_STOP) {
-                mGoButton.setEnabled(true);
-            }
+            // And switch the buttons to whatever they need to be.
+            switchButtonStates(state);
+        } else {
+            // No saved state.  Start in stop mode.
+            switchButtonStates(STATE_STOP);
         }
     }
 
@@ -181,21 +207,18 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
         if(!mLocationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
             mGoButton.setEnabled(false);
             mStopButton.setEnabled(false);
-            mTextView.append("\n\n*** Turn GPS on and try again... ***\n");
-            mScroller.fullScroll(View.FOCUS_DOWN);
+            writeLog("\n\n*** Turn GPS on and try again... ***\n");
         } else {
-            mTextView.append("\n\nReady.\n");
-            mScroller.fullScroll(View.FOCUS_DOWN);
+            writeLog("\n\nReady.\n");
         }
     }
     
     @Override
     public void onLocationChanged(Location loc) {
-        mTextView.append("Location: " + loc.getLatitude() + "," + loc.getLongitude() + "\n");
+        writeLog("Location: " + loc.getLatitude() + "," + loc.getLongitude() + "\n");
         if(mLastLoc != null) {
-            mTextView.append("(displacement: " + mLastLoc.distanceTo(loc) + ")\n");
+            writeLog("(displacement: " + mLastLoc.distanceTo(loc) + ")\n");
         }
-        mScroller.fullScroll(View.FOCUS_DOWN);
         mLastLoc = loc;
 
         if(mCamera != null) {
@@ -204,6 +227,9 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
             params.setGpsLongitude(loc.getLongitude());
             params.setGpsTimestamp(loc.getTime());
             params.setGpsAltitude(loc.getAltitude());
+            
+            // TODO: This should be set by an option!
+            params.setPictureSize(1024, 768);
             mCamera.setParameters(params);
             mCamera.takePicture(null, null, mPictureTaker.getPictureHandle(loc));
         }
@@ -212,15 +238,13 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
 
     @Override
     public void onProviderDisabled(String provider) {
-        mTextView.append("PROVIDER DISABLED\n");
-        mScroller.fullScroll(View.FOCUS_DOWN);
+        writeLog("PROVIDER DISABLED\n");
         
     }
 
     @Override
     public void onProviderEnabled(String provider) {
-        mTextView.append("PROVIDER ENABLED\n");
-        mScroller.fullScroll(View.FOCUS_DOWN);
+        writeLog("PROVIDER ENABLED\n");
     }
 
     @Override
@@ -263,5 +287,43 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
         mCamera.stopPreview();
         mCamera.release();
         mCamera = null;
+    }
+    
+    private void switchButtonStates(int newState) {
+        mLastState = newState;
+
+        if(mGoButton == null || mStopButton == null || mPauseButton == null) {
+            return;
+        }
+        
+        switch(mLastState) {
+            case STATE_RECORD:
+                // Aha!  We're recording!  Only the pause button should be
+                // visible at this point.
+                mGoButton.setVisibility(View.GONE);
+                mStopButton.setVisibility(View.GONE);
+                mPauseButton.setVisibility(View.VISIBLE);
+                break;
+            case STATE_PAUSE:
+                // We've paused.  We want to give either the stop or go options.
+                // This implies the user needs to pause before stopping.
+                mGoButton.setVisibility(View.VISIBLE);
+                mStopButton.setVisibility(View.VISIBLE);
+                mPauseButton.setVisibility(View.GONE);
+                break;
+            case STATE_STOP:
+                // We're stopped entirely.  This means we're just coming in from
+                // the start.  Only the Go button shows up here.
+                mGoButton.setVisibility(View.VISIBLE);
+                mStopButton.setVisibility(View.GONE);
+                mPauseButton.setVisibility(View.GONE);
+        }
+    }
+    
+    private void writeLog(String data) {
+        if(mTextView == null || mScroller == null) return;
+        
+        mTextView.append(data);
+        mScroller.fullScroll(View.FOCUS_DOWN);
     }
 }

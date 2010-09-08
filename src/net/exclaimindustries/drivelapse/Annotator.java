@@ -36,8 +36,6 @@ import android.util.Log;
  * @author captainspam
  */
 public class Annotator extends AssemblyLine.Station {
-    private static final long serialVersionUID = 1L;
-
     private static final String DEBUG_TAG = "Annotator";
     
     private Paint mBackgroundPaint;
@@ -54,9 +52,8 @@ public class Annotator extends AssemblyLine.Station {
     /** Distance between the box and the side and bottom of the pic. */
     private int mBoxMargin;
    
-    public Annotator(AssemblyLine al, Context context) {
+    public Annotator(Context context) {
         // Ready to annotate!
-        super(al);
         mGeocoder = new Geocoder(context);
         mContext = context;
         
@@ -66,11 +63,6 @@ public class Annotator extends AssemblyLine.Station {
         
         // The text paint gets defined first time we get a picture, as we need
         // to know how big the picture is to scale the text appropriately.
-    }
-
-    @Override
-    public void init() {
-        // Annotator doesn't have any initialization to go through.
     }
 
     @Override

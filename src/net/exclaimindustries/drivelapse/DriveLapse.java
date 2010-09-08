@@ -52,7 +52,6 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
     private Camera mCamera;
     
     private PictureTaker mPictureTaker;
-    private AssemblyLine mAssembly;
     
     private ScrollView mScroller;
     private SurfaceView mSurface;
@@ -78,7 +77,7 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
         holder.addCallback(this);
         holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
 
-        mPictureTaker = new PictureTaker(getPackageName());
+        mPictureTaker = new PictureTaker(getPackageName(), this);
         
         PowerManager pl = (PowerManager)getSystemService(Context.POWER_SERVICE);
         mWakeLock = pl.newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK
@@ -94,13 +93,7 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
                 
                 // If we were stopped, make a new AssemblyLine.
                 if(mLastState == STATE_STOP) {
-                    if(mAssembly != null) mAssembly.addEndOrder();
-                    
-                    mAssembly = new AssemblyLine();
-                    
-                    mAssembly.addStation(new Annotator(mAssembly, DriveLapse.this));
-                    mAssembly.start();
-                    mPictureTaker.restart(mAssembly);
+                    mPictureTaker.restart();
                     mCount = 0;
                     logString = "\n\n--- START! ---\n";
                 } else {
@@ -122,7 +115,6 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
                 // STOP
                 switchButtonStates(STATE_STOP);
                 mLocationManager.removeUpdates(DriveLapse.this);
-                if(mAssembly != null) mAssembly.addEndOrder();
                 if(mWakeLock.isHeld()) mWakeLock.release();
                 writeLog("--- END ---\nTotal clicks: " + mCount + "\n");
             }
@@ -154,7 +146,6 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
                 && savedInstanceState.containsKey(SAVE_PICTURE_TAKER)
                 && savedInstanceState.containsKey(SAVE_ASSEMBLY_LINE)
                 && savedInstanceState.containsKey(SAVE_STATE)) {
-            mAssembly = (AssemblyLine)savedInstanceState.get(SAVE_ASSEMBLY_LINE);
             mPictureTaker = (PictureTaker)savedInstanceState.get(SAVE_PICTURE_TAKER);
             
             // The state determines if we should be looking for locations right
@@ -181,15 +172,7 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
         super.onSaveInstanceState(outState);
      
         // Right!  Save everything!
-        outState.putSerializable(SAVE_ASSEMBLY_LINE, mAssembly);
         outState.putSerializable(SAVE_PICTURE_TAKER, mPictureTaker);
-    }
-
-    @Override
-    public void finish() {
-        // Make sure the assembly line completes itself.
-        if(mAssembly != null) mAssembly.addEndOrder();
-        super.finish();
     }
 
     @Override

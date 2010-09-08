@@ -7,13 +7,13 @@
  */
 package net.exclaimindustries.drivelapse;
 
-import java.io.Serializable;
-import java.util.HashMap;
 import java.util.LinkedList;
-import java.util.Map;
-import java.util.concurrent.LinkedBlockingQueue;
 
+import android.app.IntentService;
+import android.content.Intent;
 import android.location.Location;
+import android.os.Parcel;
+import android.os.Parcelable;
 import android.util.Log;
 
 /**
@@ -23,25 +23,11 @@ import android.util.Log;
  * 
  * @author Nicholas Killewald
  */
-public class AssemblyLine implements Runnable, Serializable {
-    private static final long serialVersionUID = 1L;
+public class AssemblyLine extends IntentService {
 
-    /** Enum dictating what type of WorkOrder we're dealing with. */
-    public static enum OrderType {
-        /** A plain picture. */
-        PICTURE,
-        /** An order to end the queue at this point. */
-        END_QUEUE
-    };
-    
     private static final String DEBUG_TAG = "AssemblyLine";
     
-    // The stations, in order.
-    private LinkedList<Station> mStations;
-    // The queue of orders.
-    private LinkedBlockingQueue<WorkOrder> mWorkOrders;
-    // An AssemblyLine is a running thread. 
-    private Thread mThread;
+    public static final String WORK_ORDER = "net.exclaimindustries.drivelapse.workorder";
     
     /**
      * A WorkOrder is the file and GPS location of a single picture to be worked
@@ -51,17 +37,28 @@ public class AssemblyLine implements Runnable, Serializable {
      * 
      * @author Nicholas Killewald
      */
-    public static class WorkOrder implements Serializable {
-        private static final long serialVersionUID = 1L;
+    public static class WorkOrder implements Parcelable {
         protected String mFileLocation;
         protected Location mGpsLocation;
-        protected Map<String, String> mExifTags;
+        
+        public static final Parcelable.Creator<WorkOrder> CREATOR = new Parcelable.Creator<WorkOrder>() {
+            public WorkOrder createFromParcel(Parcel in) {
+                return new WorkOrder(in);
+            }
+
+            public WorkOrder[] newArray(int size) {
+                return new WorkOrder[size];
+            }
+        };
         
         public WorkOrder(String fileLocation, Location gpsLocation) {
             mFileLocation = fileLocation;
             mGpsLocation = gpsLocation;
             
-            mExifTags = new HashMap<String,String>();
+        }
+        
+        public WorkOrder(Parcel in) {
+            readFromParcel(in);
         }
         
         public String getFileLocation() {
@@ -71,39 +68,29 @@ public class AssemblyLine implements Runnable, Serializable {
         public Location getGpsLocation() {
             return mGpsLocation;
         }
-        
-        public Map<String, String> getExifTags() {
-            return mExifTags;
+
+        @Override
+        public int describeContents() {
+            return 0;
         }
 
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            // WRITE!
+            dest.writeString(mFileLocation);
+            dest.writeParcelable(mGpsLocation, flags);
+        }
+        
         /**
-         * Returns the type of order this is.
+         * Reads an incoming Parcel and deparcelizes it.  I like the word
+         * "deparcelize" so much, I'm importing it from Geohash Droid.
          * 
-         * @return OrderType.PICTURE if it's a picture, ObjectType.STOP_COMMAND
-         *         if this is the end of the queue and the Annotator thread
-         *         should stop now
+         * @param in parcel to deparcelize
          */
-        public OrderType getType() {
-            return OrderType.PICTURE;
-        }    
-    }
-    
-    /**
-     * An EndOrder is an order whose sole purpose is to tell the AssemblyLine
-     * that it's the end of the queue at this point, and it should shut down
-     * once the last order's done.
-     * 
-     * @author Nicholas Killewald
-     */
-    public final static class EndOrder extends WorkOrder {
-        private static final long serialVersionUID = 1L;
-
-        public EndOrder() {
-            super(null, null);
-        }
-        
-        public OrderType getType() {
-            return OrderType.END_QUEUE;
+        public void readFromParcel(Parcel in) {
+            // Go!
+            mFileLocation = in.readString();
+            mGpsLocation = (Location)(in.readParcelable(null));
         }
     }
     
@@ -115,23 +102,7 @@ public class AssemblyLine implements Runnable, Serializable {
      * 
      * @author Nicholas Killewald
      */
-    public abstract static class Station implements Serializable {
-        private static final long serialVersionUID = 1L;
-        
-        /** The AssemblyLine that owns this Station. */
-        protected AssemblyLine mAl;
-        
-        public Station(AssemblyLine al) {
-            mAl = al;
-        }
-
-        /**
-         * Does any initialization needed for this Station.  This might include
-         * starting up network connections, readying variables, etc, but also
-         * must include resetting itself from a previous execution.
-         */
-        public abstract void init();
-
+    public abstract static class Station {
         /**
          * Processes a WorkOrder.  Note that this is synchronous; It'll return
          * when it gets done.
@@ -140,16 +111,6 @@ public class AssemblyLine implements Runnable, Serializable {
          * @return true on success, false if something went wrong
          */
         public abstract boolean processOrder(WorkOrder order);
-
-        /**
-         * Finishes up whatever needs finishing up in this Station.  This could
-         * be any amount of stateful things (finishing a movie, closing
-         * connections, etc).
-         *
-         * This comes pre-defined to do nothing, since most Stations probably
-         * won't do anything.  Override if need be.
-         */
-        public void finish() {}
         
         /**
          * Gets the name of this Station.  Each Station in a given AssemblyLine
@@ -161,99 +122,25 @@ public class AssemblyLine implements Runnable, Serializable {
     }
     
     public AssemblyLine() {
-        mStations = new LinkedList<Station>();
-        mWorkOrders = new LinkedBlockingQueue<WorkOrder>();
-        
-        mThread = new Thread(this);
-        mThread.setName("AssemblyLine Thread");
+        super("AssemblyLine");
     }
-
-    /**
-     * Adds a WorkOrder to the line.  This will also wake up the thread if it
-     * ran out of orders and is waiting on something.
-     * 
-     * @param order the new WorkOrder to add
-     */
-    public void addWorkOrder(WorkOrder order) {
-        if(mThread == null || !mThread.isAlive()) {
-            Log.w(DEBUG_TAG, "A new WorkOrder came in, but the thread isn't running!");
-        } else {
-            mWorkOrders.offer(order);
-        }
-    }
-    
-    /**
-     * Adds an EndOrder to the line.  That is, it indicates the end of the line
-     * and will stop all the Station threads and this thread itself, once all
-     * other orders are finished.
-     */
-    public void addEndOrder() {
-        addWorkOrder(new EndOrder());
-    }
-    
-    /**
-     * Adds a Station to the end of the line.  Remember to add them in order!
-     * And you can't add them if the line is active.
-     * 
-     * @param station Station to add
-     */
-    public void addStation(Station station) {
-        if(mThread == null || !mThread.isAlive()) {
-            // Add it to the list!
-            mStations.add(station);
-        }
-        else
-            throw new IllegalThreadStateException("The AssemblyLine is currently running, so Stations can't be added!");
-    }
-
-    /**
-     * The workers have a new contract, start up the AssemblyLine!
-     */
-    public void start() {
-        for(Station s : mStations) {
-            s.init();
-        }
-        mThread.start();
-    }
-    
+     
     @Override
-    public void run() {
-        // And away we go!
-        OrderType lastType = OrderType.PICTURE;
+    protected void onHandleIntent(Intent intent) {
+        // First off, grab the WorkOrder.
+        Log.d(DEBUG_TAG, "Order up!");
+        WorkOrder order = (WorkOrder)(intent.getParcelableExtra(WORK_ORDER));
         
-        do {
-            WorkOrder order = null;
-            try {
-                // Block!
-                order = mWorkOrders.take();
-            } catch (InterruptedException e) {
-                // INTERRUPTION!  Assume this means we stop.
-                order = new EndOrder();
-            }
-            
-            Log.d(DEBUG_TAG, "Order up!");
-            lastType = OrderType.END_QUEUE;
-            if(lastType == OrderType.END_QUEUE) continue;
-
-            // Now, go through the stations one at a time and do whatever it is
-            // that needs to be done.
-            for(Station st : mStations) {
-                st.processOrder(order);
-            }
-        } while(lastType != OrderType.END_QUEUE);
+        // Make all our stations.  This is a very temporary setup; I'm certain
+        // there HAS to be a better way to do this (in fact, the whole
+        // IntentService thing may be changed significantly later).
+        LinkedList<Station> stations = new LinkedList<Station>();
         
-        Log.d(DEBUG_TAG, "DONE!");
-        for(Station st : mStations) {
-            st.finish();
+        stations.add(new Annotator(this));
+        
+        for(Station st : stations) {
+            st.processOrder(order);
         }
-    }
-    
-    /**
-     * Determines if this AssemblyLine is currently running.
-     * 
-     * @return true if it's running, false if it's not
-     */
-    public boolean isAlive() {
-        return (mThread != null && mThread.isAlive());
+        Log.d(DEBUG_TAG, "Order finished!");
     }
 }

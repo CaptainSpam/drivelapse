@@ -11,6 +11,8 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.Serializable;
 
+import android.content.Context;
+import android.content.Intent;
 import android.hardware.Camera;
 import android.location.Location;
 import android.util.Log;
@@ -26,10 +28,11 @@ public class PictureTaker implements Serializable {
     
     private String mPackageName;
     private String mDirName;
-    private AssemblyLine mAl;
+    private Context mContext;
 
-    public PictureTaker(String packageName) {
+    public PictureTaker(String packageName, Context context) {
         mPackageName = packageName;
+        mContext = context;
     }
     
     /**
@@ -40,8 +43,7 @@ public class PictureTaker implements Serializable {
      * 
      * @return true if the directory was created, false if not
      */
-    public boolean restart(AssemblyLine al) {
-        mAl = al;
+    public boolean restart() {
         // Create the directory.
         mDirName = "/sdcard/" + mPackageName + "/DriveLapse-" + (System.currentTimeMillis() / 1000) + "/";
         boolean success = (new File(mDirName)).mkdirs();
@@ -62,7 +64,7 @@ public class PictureTaker implements Serializable {
      * @return a SinglePicture, of course
      */
     public SinglePicture getPictureHandle(Location loc) {
-        return new SinglePicture(loc, mDirName, mAl);
+        return new SinglePicture(loc, mDirName, mContext);
     }
     
     /**
@@ -76,17 +78,17 @@ public class PictureTaker implements Serializable {
         
         private Location mLocation;
         private String mDirName;
-        private AssemblyLine mmAl;
+        private Context mContext;
         
         /**
          * Constructs a SinglePicture with the given Location, ready for action.
          * 
          * @param loc Location at which this picture took place.
          */
-        private SinglePicture(Location loc, String dirName, AssemblyLine al) {
+        private SinglePicture(Location loc, String dirName, Context context) {
             mLocation = loc;
             mDirName = dirName;
-            mmAl = al;
+            mContext = context;
         }
 
         @Override
@@ -101,7 +103,9 @@ public class PictureTaker implements Serializable {
                 ostream.close();
                 
                 AssemblyLine.WorkOrder order = new AssemblyLine.WorkOrder(filename, mLocation);
-                mmAl.addWorkOrder(order);
+                Intent i = new Intent(mContext, AssemblyLine.class);
+                i.putExtra(AssemblyLine.WORK_ORDER, order);
+                mContext.startService(i);
             } catch (Exception e) {
                 Log.e(DEBUG_TAG, "EXCEPTION!");
                 e.printStackTrace();

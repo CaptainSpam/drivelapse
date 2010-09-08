@@ -185,6 +185,14 @@ public class AssemblyLine implements Runnable, Serializable {
             mAl.stationDone(order, this);
         }
     }
+    
+    public AssemblyLine() {
+        mStations = new LinkedList<Station>();
+        mWorkOrders = new LinkedBlockingQueue<WorkOrder>();
+        
+        mThread = new Thread(this);
+        mThread.setName("AssemblyLine");
+    }
 
     /**
      * Adds a WorkOrder to the line.  This will also wake up the thread if it
@@ -193,9 +201,11 @@ public class AssemblyLine implements Runnable, Serializable {
      * @param order the new WorkOrder to add
      */
     public void addWorkOrder(WorkOrder order) {
-        if(mThread == null || !mThread.isAlive())
+        if(mThread == null || !mThread.isAlive()) {
             Log.w(DEBUG_TAG, "A new WorkOrder came in, but the thread isn't running!");
-        mWorkOrders.offer(order);
+        } else {
+            mWorkOrders.offer(order);
+        }
     }
     
     /**
@@ -226,10 +236,39 @@ public class AssemblyLine implements Runnable, Serializable {
             throw new IllegalThreadStateException("The AssemblyLine is currently running, so Stations can't be added!");
     }
 
+    /**
+     * The workers have a new contract, start up the AssemblyLine!
+     */
+    public void start() {
+        for(Station s : mStations) {
+            s.start();
+        }
+        mThread.start();
+    }
+    
     @Override
     public void run() {
         // And away we go!
+        OrderType lastType = OrderType.PICTURE;
         
+        do {
+            WorkOrder order = null;
+            try {
+                // Block!
+                order = mWorkOrders.take();
+            } catch (InterruptedException e) {
+                // INTERRUPTION!  Assume this means we stop.
+                lastType = AssemblyLine.OrderType.END_QUEUE;
+                mStations.getFirst().addOrder(new EndOrder());
+                continue;
+            }
+            
+            Log.d(DEBUG_TAG, "Order up!");
+            lastType = order.getType();
+            mStations.getFirst().addOrder(order);
+        } while(lastType != OrderType.END_QUEUE);
+        
+        Log.d(DEBUG_TAG, "DONE!");
     }
     
     /**

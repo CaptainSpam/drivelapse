@@ -34,6 +34,8 @@ import android.util.Log;
  * @author captainspam
  */
 public class Annotator extends AssemblyLine.Station {
+    private static final long serialVersionUID = 1L;
+
     private static final String DEBUG_TAG = "Annotator";
     
     private Paint mBackgroundPaint;

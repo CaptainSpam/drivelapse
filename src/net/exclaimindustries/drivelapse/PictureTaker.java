@@ -9,6 +9,7 @@ package net.exclaimindustries.drivelapse;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.Serializable;
 
 import android.hardware.Camera;
 import android.location.Location;
@@ -18,7 +19,8 @@ import android.util.Log;
  * @author captainspam
  *
  */
-public class PictureTaker {
+public class PictureTaker implements Serializable {
+    private static final long serialVersionUID = 1L;
 
     private static final String DEBUG_TAG = "PictureTaker";
     

@@ -7,6 +7,7 @@
  */
 package net.exclaimindustries.drivelapse;
 
+import java.io.Serializable;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
@@ -22,7 +23,9 @@ import android.util.Log;
  * 
  * @author Nicholas Killewald
  */
-public class AssemblyLine implements Runnable {
+public class AssemblyLine implements Runnable, Serializable {
+    private static final long serialVersionUID = 1L;
+
     /** Enum dictating what type of WorkOrder we're dealing with. */
     public static enum OrderType {
         /** A plain picture. */
@@ -48,7 +51,8 @@ public class AssemblyLine implements Runnable {
      * 
      * @author Nicholas Killewald
      */
-    public static class WorkOrder {
+    public static class WorkOrder implements Serializable {
+        private static final long serialVersionUID = 1L;
         protected String mFileLocation;
         protected Location mGpsLocation;
         protected Map<String, String> mExifTags;
@@ -92,6 +96,8 @@ public class AssemblyLine implements Runnable {
      * @author Nicholas Killewald
      */
     public final static class EndOrder extends WorkOrder {
+        private static final long serialVersionUID = 1L;
+
         public EndOrder() {
             super(null, null);
         }
@@ -110,7 +116,9 @@ public class AssemblyLine implements Runnable {
      * 
      * @author Nicholas Killewald
      */
-    public abstract static class Station implements Runnable {
+    public abstract static class Station implements Runnable, Serializable {
+        private static final long serialVersionUID = 1L;
+
         /** The orders this station has yet to run. */
         protected LinkedBlockingQueue<WorkOrder> mOrderQueue;
         
@@ -241,5 +249,14 @@ public class AssemblyLine implements Runnable {
             Log.d(DEBUG_TAG, "WorkOrder complete!");
         }
             
+    }
+    
+    /**
+     * Determines if this AssemblyLine is currently running.
+     * 
+     * @return true if it's running, false if it's not
+     */
+    public boolean isAlive() {
+        return (mThread != null && mThread.isAlive());
     }
 }

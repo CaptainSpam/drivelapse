@@ -92,6 +92,11 @@ public class Annotator extends AssemblyLine.Station {
             // Keep spinning this until this isn't null.  A successful lookup
             // that has no data gives an empty list.  A failure keeps it null.
             while(addresses == null) {
+                if(mThread.isInterrupted()) {
+                    Log.w(DEBUG_TAG, "Geocoder was interrupted, assuming this means to stop...");
+                    lastType = AssemblyLine.OrderType.END_QUEUE;
+                    break;
+                }
                 try {
                     addresses = mGeocoder.getFromLocation(
                             order.getGpsLocation().getLatitude(),
@@ -99,6 +104,12 @@ public class Annotator extends AssemblyLine.Station {
                             1);
                 } catch (IOException e) {
                     e.printStackTrace();
+                    if(mThread.isInterrupted()) {
+                        Log.w(DEBUG_TAG, "Geocoder was interrupted, assuming this means to stop...");
+                        lastType = AssemblyLine.OrderType.END_QUEUE;
+                        break;
+                    }
+                    
                     Log.i(DEBUG_TAG, "Geocoder lookup failure, sleeping...");
                     // Presumably, an IOException means we can't get a data
                     // connection (or whatever the Geocoder backend communicates
@@ -112,7 +123,7 @@ public class Annotator extends AssemblyLine.Station {
                         // What?  We were interrupted, too?!?  Geez.  Okay,
                         // fine, at this point, assume we've got nothing and
                         // don't know where we are.
-                        Log.w(DEBUG_TAG, "Geocoder sleep timeout interrupted!  Assuming this means to stop...");
+                        Log.w(DEBUG_TAG, "Geocoder sleep timeout interrupted, assuming this means to stop...");
                         lastType = AssemblyLine.OrderType.END_QUEUE;
                         break;
                     }
@@ -151,6 +162,10 @@ public class Annotator extends AssemblyLine.Station {
                 
                 drawFullAddress(canvas, place);
             } else {
+                // If we got here, this might mean that the addresses list is
+                // empty.  However, it may also mean that it's null, meaning we
+                // got interrupted during a wait.  Even though that means we're
+                // bailing out, we still have an annotation to wrap up.
                 drawUnknownAddress(canvas);
             }
             

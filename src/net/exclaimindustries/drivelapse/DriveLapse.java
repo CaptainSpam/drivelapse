@@ -110,7 +110,7 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
             public void onClick(View v) {
                 // STOP
                 mLocationManager.removeUpdates(DriveLapse.this);
-                mAssembly.addEndOrder();
+                if(mAssembly != null) mAssembly.addEndOrder();
                 mGoButton.setEnabled(true);
                 if(mWakeLock.isHeld()) mWakeLock.release();
                 mTextView.append("--- END ---\nTotal clicks: " + mCount + "\n");

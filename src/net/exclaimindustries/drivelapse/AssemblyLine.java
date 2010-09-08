@@ -112,78 +112,52 @@ public class AssemblyLine implements Runnable, Serializable {
      * WorkOrder.  Such instructions can be, for instance, annotation, exif
      * handling, movie construction, etc, etc.  Note that it is expected that
      * the image will stay on disk in the same spot as it was to begin with.
-     * Also note that Stations are Runnables. 
      * 
      * @author Nicholas Killewald
      */
-    public abstract static class Station implements Runnable, Serializable {
+    public abstract static class Station implements Serializable {
         private static final long serialVersionUID = 1L;
-
-        /** The orders this station has yet to run. */
-        protected LinkedBlockingQueue<WorkOrder> mOrderQueue;
-        
-        /** The current thread this Runnable is running under. */
-        protected Thread mThread;
         
         /** The AssemblyLine that owns this Station. */
         protected AssemblyLine mAl;
         
-        /** The next station in the line.  If null, this is the end. */
-        private Station mNextStation;
-        
         public Station(AssemblyLine al) {
             mAl = al;
-            mOrderQueue = new LinkedBlockingQueue<WorkOrder>();
-            mThread = new Thread(this);
-            mThread.setName(getName() + " Station");
         }
-        
+
         /**
-         * Starts the station in motion.
+         * Does any initialization needed for this Station.  This might include
+         * starting up network connections, readying variables, etc, but also
+         * must include resetting itself from a previous execution.
          */
-        protected void start() {
-            mThread.start();
-        }
-        
+        public abstract void init();
+
         /**
-         * Adds an order to the Station.  It'll get done when it gets done.
-         * 
-         * @param order WorkOrder to add
-         * @return true if the order got added, false if it didn't (either
-         *         meaning the queue is full, this Station hasn't started yet,
-         *         this Station finished up, or the AssemblyLine is on strike)
+         * Processes a WorkOrder.  Note that this is synchronous; It'll return
+         * when it gets done.
+         *
+         * @param order WorkOrder on which to work
+         * @return true on success, false if something went wrong
          */
-        public boolean addOrder(WorkOrder order) {
-            if(mThread != null && mThread.isAlive())
-                return mOrderQueue.offer(order);
-            else
-            {
-                Log.w(getName(), "A WorkOrder came in from the AssemblyLine, but this Station's thread isn't alive!");
-                return false;
-            }
-        }
+        public abstract boolean processOrder(WorkOrder order);
+
+        /**
+         * Finishes up whatever needs finishing up in this Station.  This could
+         * be any amount of stateful things (finishing a movie, closing
+         * connections, etc).
+         *
+         * This comes pre-defined to do nothing, since most Stations probably
+         * won't do anything.  Override if need be.
+         */
+        public void finish() {}
         
         /**
          * Gets the name of this Station.  Each Station in a given AssemblyLine
-         * needs a unique name.  This is also used as the thread name, with a
-         * space and the word "Station" after it.  So don't put "Station" in the
-         * name.  It'll look silly.
+         * needs a unique name.
          * 
          * @return this Station's name
          */
         public abstract String getName();
-        
-        private void setNextStation(Station next) {
-            mNextStation = next;
-        }
-        
-        private Station getNextStation() {
-            return mNextStation;
-        }
-        
-        protected void finishOrder(WorkOrder order) {
-            mAl.stationDone(order, this);
-        }
     }
     
     public AssemblyLine() {
@@ -191,7 +165,7 @@ public class AssemblyLine implements Runnable, Serializable {
         mWorkOrders = new LinkedBlockingQueue<WorkOrder>();
         
         mThread = new Thread(this);
-        mThread.setName("AssemblyLine");
+        mThread.setName("AssemblyLine Thread");
     }
 
     /**
@@ -225,11 +199,7 @@ public class AssemblyLine implements Runnable, Serializable {
      */
     public void addStation(Station station) {
         if(mThread == null || !mThread.isAlive()) {
-            // If the list isn't empty, let the current last one know what its
-            // new next one is.
-            if(!mStations.isEmpty()) {
-                mStations.getLast().setNextStation(station);
-            }
+            // Add it to the list!
             mStations.add(station);
         }
         else
@@ -241,7 +211,7 @@ public class AssemblyLine implements Runnable, Serializable {
      */
     public void start() {
         for(Station s : mStations) {
-            s.start();
+            s.init();
         }
         mThread.start();
     }
@@ -258,36 +228,23 @@ public class AssemblyLine implements Runnable, Serializable {
                 order = mWorkOrders.take();
             } catch (InterruptedException e) {
                 // INTERRUPTION!  Assume this means we stop.
-                lastType = AssemblyLine.OrderType.END_QUEUE;
-                mStations.getFirst().addOrder(new EndOrder());
-                continue;
+                order = new EndOrder();
             }
             
             Log.d(DEBUG_TAG, "Order up!");
             lastType = order.getType();
-            mStations.getFirst().addOrder(order);
+
+            // Now, go through the stations one at a time and do whatever it is
+            // that needs to be done.
+            for(Station st : mStations) {
+                st.processOrder(order);
+            }
         } while(lastType != OrderType.END_QUEUE);
         
         Log.d(DEBUG_TAG, "DONE!");
-    }
-    
-    /**
-     * Called by Stations when they finish a WorkOrder.  The AssemblyLine will
-     * then feed it to the next Station, if there is one.  Don't you just love
-     * baffling inner class access?
-     * 
-     * @param order the WorkOrder finished
-     * @param last the Station that just finished it
-     */
-    private void stationDone(WorkOrder order, Station last) {
-        if(last.getNextStation() != null) {
-            // If there's another station, queue it up there.
-            last.getNextStation().addOrder(order);
-        } else {
-            // Otherwise, we're done!
-            Log.d(DEBUG_TAG, "WorkOrder complete!");
+        for(Station st ; mStations) {
+            st.finish();
         }
-            
     }
     
     /**

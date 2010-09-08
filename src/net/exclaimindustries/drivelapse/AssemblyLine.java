@@ -7,7 +7,9 @@
  */
 package net.exclaimindustries.drivelapse;
 
+import java.util.HashMap;
 import java.util.LinkedList;
+import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 
 import android.location.Location;
@@ -20,7 +22,7 @@ import android.util.Log;
  * 
  * @author Nicholas Killewald
  */
-public class AssemblyLine {
+public class AssemblyLine implements Runnable {
     /** Enum dictating what type of WorkOrder we're dealing with. */
     public static enum OrderType {
         /** A plain picture. */
@@ -29,10 +31,14 @@ public class AssemblyLine {
         END_QUEUE
     };
     
+    private static final String DEBUG_TAG = "AssemblyLine";
+    
     // The stations, in order.
     private LinkedList<Station> mStations;
     // The queue of orders.
     private LinkedBlockingQueue<WorkOrder> mWorkOrders;
+    // An AssemblyLine is a running thread. 
+    private Thread mThread;
     
     /**
      * A WorkOrder is the file and GPS location of a single picture to be worked
@@ -45,10 +51,13 @@ public class AssemblyLine {
     public class WorkOrder {
         protected String mFileLocation;
         protected Location mGpsLocation;
+        protected Map<String, String> mExifTags;
         
         public WorkOrder(String fileLocation, Location gpsLocation) {
             mFileLocation = fileLocation;
             mGpsLocation = gpsLocation;
+            
+            mExifTags = new HashMap<String,String>();
         }
         
         public String getFileLocation() {
@@ -57,6 +66,10 @@ public class AssemblyLine {
 
         public Location getGpsLocation() {
             return mGpsLocation;
+        }
+        
+        public Map<String, String> getExifTags() {
+            return mExifTags;
         }
 
         /**
@@ -107,6 +120,9 @@ public class AssemblyLine {
         /** The AssemblyLine that owns this Station. */
         protected AssemblyLine mAl;
         
+        /** The next station in the line.  If null, this is the end. */
+        private Station mNextStation;
+        
         public Station(AssemblyLine al) {
             mAl = al;
             mOrderQueue = new LinkedBlockingQueue<WorkOrder>();
@@ -141,5 +157,82 @@ public class AssemblyLine {
          * @return this Station's name
          */
         public abstract String getName();
+        
+        private void setNextStation(Station next) {
+            mNextStation = next;
+        }
+        
+        private Station getNextStation() {
+            return mNextStation;
+        }
+        
+        protected void finishOrder(WorkOrder order) {
+            mAl.stationDone(order, this);
+        }
+    }
+
+    /**
+     * Adds a WorkOrder to the line.  This will also wake up the thread if it
+     * ran out of orders and is waiting on something.
+     * 
+     * @param order the new WorkOrder to add
+     */
+    public void addWorkOrder(WorkOrder order) {
+        if(mThread != null && mThread.isAlive())
+            mWorkOrders.offer(order);
+        else
+            Log.e(DEBUG_TAG, "A WorkOrder came in, but the AssemblyLine isn't open!");
+    }
+    
+    /**
+     * Adds an EndOrder to the line.  That is, it indicates the end of the line
+     * and will stop all the Station threads and this thread itself, once all
+     * other orders are finished.
+     */
+    public void addEndOrder() {
+        addWorkOrder(new EndOrder());
+    }
+    
+    /**
+     * Adds a Station to the end of the line.  Remember to add them in order!
+     * And you can't add them if the line is active.
+     * 
+     * @param station Station to add
+     */
+    public void addStation(Station station) {
+        if(mThread == null || !mThread.isAlive()) {
+            // If the list isn't empty, let the current last one know what its
+            // new next one is.
+            if(!mStations.isEmpty()) {
+                mStations.getLast().setNextStation(station);
+            }
+            mStations.add(station);
+        }
+        else
+            throw new IllegalThreadStateException("The AssemblyLine is currently running, so Stations can't be added!");
+    }
+
+    @Override
+    public void run() {
+        // And away we go!
+        
+    }
+    
+    /**
+     * Called by Stations when they finish a WorkOrder.  The AssemblyLine will
+     * then feed it to the next Station, if there is one.  Don't you just love
+     * baffling inner class access?
+     * 
+     * @param order the WorkOrder finished
+     * @param last the Station that just finished it
+     */
+    private void stationDone(WorkOrder order, Station last) {
+        if(last.getNextStation() != null) {
+            // If there's another station, queue it up there.
+            last.getNextStation().addOrder(order);
+        } else {
+            // Otherwise, we're done!
+        }
+            
     }
 }

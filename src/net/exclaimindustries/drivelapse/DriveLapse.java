@@ -45,6 +45,8 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
     private ScrollView mScroller;
     private SurfaceView mSurface;
     
+    private AssemblyLine mAssembly;
+    
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -76,6 +78,11 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
             @Override
             public void onClick(View v) {
                 // First test: Every 100 meters.  So... um... 400 feet or so?
+                
+                // We create a new AssemblyLine and set of Stations every time
+                // we start.
+                mAssembly = new AssemblyLine();
+                
                 if(mAnnotator != null) mAnnotator.finishQueue();
                 mAnnotator = new Annotator(DriveLapse.this, mGeocoder);
                 mPictureTaker.restart(mAnnotator);

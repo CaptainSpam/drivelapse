@@ -14,6 +14,8 @@ import java.text.DateFormat;
 import java.util.Calendar;
 import java.util.List;
 
+import net.exclaimindustries.drivelapse.AssemblyLine.WorkOrder;
+
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -67,128 +69,110 @@ public class Annotator extends AssemblyLine.Station {
     }
 
     @Override
-    public void run() {
-        AssemblyLine.OrderType lastType;
+    public void init() {
+        // Annotator doesn't have any initialization to go through.
+    }
+
+    @Override
+    public boolean processOrder(WorkOrder order) {
+        // And away we go!
+        Log.d(DEBUG_TAG, "Annotator thread has an image!  It's at " + order.getFileLocation());
         
-        // Right!  What we want to do is cycle through the queue until we run
-        // into the stopper command.  take() will block the thread until there's
-        // something there.
-        do {
-            AssemblyLine.WorkOrder order = null;
-            try {
-                // Block!
-                order = mOrderQueue.take();
-            } catch (InterruptedException e) {
-                // INTERRUPTION!  Assume this means we stop.
-                lastType = AssemblyLine.OrderType.END_QUEUE;
-                continue;
+        // Right, we've got a picture!  Let's annotate!  First, get data.
+        List<Address> addresses = null;
+        
+        // Keep spinning this until this isn't null.  A successful lookup
+        // that has no data gives an empty list.  A failure keeps it null.
+        while(addresses == null) {
+            if(Thread.currentThread().isInterrupted()) {
+                Log.w(DEBUG_TAG, "Geocoder was interrupted, assuming this means to stop...");
+                break;
             }
-            lastType = order.getType();
-            if(lastType == AssemblyLine.OrderType.END_QUEUE) continue;
-            
-            Log.d(DEBUG_TAG, "Annotator thread has an image!  It's at " + order.getFileLocation());
-            
-            // Right, we've got a picture!  Let's annotate!  First, get data.
-            List<Address> addresses = null;
-            
-            // Keep spinning this until this isn't null.  A successful lookup
-            // that has no data gives an empty list.  A failure keeps it null.
-            while(addresses == null) {
-                if(mThread.isInterrupted()) {
+            try {
+                addresses = mGeocoder.getFromLocation(
+                        order.getGpsLocation().getLatitude(),
+                        order.getGpsLocation().getLongitude(),
+                        1);
+            } catch (IOException e) {
+                e.printStackTrace();
+                if(Thread.currentThread().isInterrupted()) {
                     Log.w(DEBUG_TAG, "Geocoder was interrupted, assuming this means to stop...");
-                    lastType = AssemblyLine.OrderType.END_QUEUE;
                     break;
                 }
+                
+                Log.i(DEBUG_TAG, "Geocoder lookup failure, sleeping...");
+                // Presumably, an IOException means we can't get a data
+                // connection (or whatever the Geocoder backend communicates
+                // with is dead).  So, sleep for a bit and try it again.
+                // TODO: Find something better to do, as this doesn't
+                // allow for canceling.
                 try {
-                    addresses = mGeocoder.getFromLocation(
-                            order.getGpsLocation().getLatitude(),
-                            order.getGpsLocation().getLongitude(),
-                            1);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    if(mThread.isInterrupted()) {
-                        Log.w(DEBUG_TAG, "Geocoder was interrupted, assuming this means to stop...");
-                        lastType = AssemblyLine.OrderType.END_QUEUE;
-                        break;
-                    }
-                    
-                    Log.i(DEBUG_TAG, "Geocoder lookup failure, sleeping...");
-                    // Presumably, an IOException means we can't get a data
-                    // connection (or whatever the Geocoder backend communicates
-                    // with is dead).  So, sleep for a bit and try it again.
-                    // TODO: Find something better to do, as this doesn't
-                    // allow for canceling.
-                    try {
-                        Thread.sleep(10000);
-                    } catch (InterruptedException e1) {
-                        e1.printStackTrace();
-                        // What?  We were interrupted, too?!?  Geez.  Okay,
-                        // fine, at this point, assume we've got nothing and
-                        // don't know where we are.
-                        Log.w(DEBUG_TAG, "Geocoder sleep timeout interrupted, assuming this means to stop...");
-                        lastType = AssemblyLine.OrderType.END_QUEUE;
-                        break;
-                    }
+                    Thread.sleep(10000);
+                } catch (InterruptedException e1) {
+                    e1.printStackTrace();
+                    // What?  We were interrupted, too?!?  Geez.  Okay,
+                    // fine, at this point, assume we've got nothing and
+                    // don't know where we are.
+                    Log.w(DEBUG_TAG, "Geocoder sleep timeout interrupted, assuming this means to stop...");
+                    break;
                 }
             }
+        }
 
-            // Now, let's crack that image open and get some tasty, tasty data.
-            Bitmap origBitmap = BitmapFactory.decodeFile(order.getFileLocation());
-            Bitmap bitmap = origBitmap.copy(origBitmap.getConfig(), true);
-            origBitmap.recycle();
-            origBitmap = null;
-            Canvas canvas = new Canvas(bitmap);
-            
-            // If we haven't made the text paint yet, we can use the bitmap to
-            // decide how big to make it.
-            if(mTextPaint == null) {
-                // TODO: Determine if I want to tweak the sizes based on the
-                // size of the incoming image.
-                mTextPaint = new Paint();
-                mTextPaint.setColor(mContext.getResources().getColor(R.color.annotation_textcolor));
-                mTextPaint.setTextSize(24);
-                mTextPaint.setAntiAlias(true);
-                mBoxHeight = 32;
-                mBoxPadding = 4;
-                mBoxMargin = 16;
-                
-            }
-            
-            drawCoordinates(canvas, order.getGpsLocation());
-            drawDateAndTime(canvas, order.getGpsLocation());
-            
-            if(addresses != null && !addresses.isEmpty()) {
-                Log.d(DEBUG_TAG, "Address retrieved, now annotating...");
-                
-                Address place = addresses.get(0);
-                
-                drawFullAddress(canvas, place);
-            } else {
-                // If we got here, this might mean that the addresses list is
-                // empty.  However, it may also mean that it's null, meaning we
-                // got interrupted during a wait.  Even though that means we're
-                // bailing out, we still have an annotation to wrap up.
-                drawUnknownAddress(canvas);
-            }
-            
-            File output = new File(order.getFileLocation());
-            
-            FileOutputStream ostream = null;
-            try {
-                ostream = new FileOutputStream(output);
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, ostream);
-                ostream.close();
-            } catch (Exception e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
-            }
-            bitmap.recycle();
-            bitmap = null;
-            
-            finishOrder(order);
-        } while(lastType != AssemblyLine.OrderType.END_QUEUE);
+        // Now, let's crack that image open and get some tasty, tasty data.
+        Bitmap origBitmap = BitmapFactory.decodeFile(order.getFileLocation());
+        Bitmap bitmap = origBitmap.copy(origBitmap.getConfig(), true);
+        origBitmap.recycle();
+        origBitmap = null;
+        Canvas canvas = new Canvas(bitmap);
         
-        Log.d(DEBUG_TAG, "Got an end request, ending the thread now...");
+        // If we haven't made the text paint yet, we can use the bitmap to
+        // decide how big to make it.
+        if(mTextPaint == null) {
+            // TODO: Determine if I want to tweak the sizes based on the
+            // size of the incoming image.
+            mTextPaint = new Paint();
+            mTextPaint.setColor(mContext.getResources().getColor(R.color.annotation_textcolor));
+            mTextPaint.setTextSize(24);
+            mTextPaint.setAntiAlias(true);
+            mBoxHeight = 32;
+            mBoxPadding = 4;
+            mBoxMargin = 16;
+            
+        }
+        
+        drawCoordinates(canvas, order.getGpsLocation());
+        drawDateAndTime(canvas, order.getGpsLocation());
+        
+        if(addresses != null && !addresses.isEmpty()) {
+            Log.d(DEBUG_TAG, "Address retrieved, now annotating...");
+            
+            Address place = addresses.get(0);
+            
+            drawFullAddress(canvas, place);
+        } else {
+            // If we got here, this might mean that the addresses list is
+            // empty.  However, it may also mean that it's null, meaning we
+            // got interrupted during a wait.  Even though that means we're
+            // bailing out, we still have an annotation to wrap up.
+            drawUnknownAddress(canvas);
+        }
+        
+        File output = new File(order.getFileLocation());
+        
+        FileOutputStream ostream = null;
+        try {
+            ostream = new FileOutputStream(output);
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, ostream);
+            ostream.close();
+        } catch (Exception e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+        bitmap.recycle();
+        bitmap = null;
+        
+        return false;
     }
     
     private void drawLeftTextBox(Canvas canvas, String text, int position) {

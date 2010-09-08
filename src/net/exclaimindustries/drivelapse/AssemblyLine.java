@@ -232,7 +232,8 @@ public class AssemblyLine implements Runnable, Serializable {
             }
             
             Log.d(DEBUG_TAG, "Order up!");
-            lastType = order.getType();
+            lastType = OrderType.END_QUEUE;
+            if(lastType == OrderType.END_QUEUE) continue;
 
             // Now, go through the stations one at a time and do whatever it is
             // that needs to be done.
@@ -242,7 +243,7 @@ public class AssemblyLine implements Runnable, Serializable {
         } while(lastType != OrderType.END_QUEUE);
         
         Log.d(DEBUG_TAG, "DONE!");
-        for(Station st ; mStations) {
+        for(Station st : mStations) {
             st.finish();
         }
     }

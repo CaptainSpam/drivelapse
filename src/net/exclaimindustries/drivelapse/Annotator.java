@@ -11,10 +11,8 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.text.DateFormat;
-import java.text.DecimalFormat;
 import java.util.Calendar;
 import java.util.List;
-import java.util.concurrent.LinkedBlockingQueue;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -25,7 +23,6 @@ import android.graphics.Rect;
 import android.graphics.Paint.Style;
 import android.location.Address;
 import android.location.Geocoder;
-import android.location.Location;
 import android.util.Log;
 
 /**
@@ -35,7 +32,7 @@ import android.util.Log;
  * 
  * @author captainspam
  */
-public class Annotator implements Runnable {
+public class Annotator extends AssemblyLine.Station {
     private static final String DEBUG_TAG = "Annotator";
     
     private Paint mBackgroundPaint;
@@ -44,11 +41,6 @@ public class Annotator implements Runnable {
     private Geocoder mGeocoder;
     private Context mContext;
     
-    // The picture queue.
-    private LinkedBlockingQueue<IncomingPicture> mPictureQueue;
-    
-    private Thread mThread;
-    
     // The following three are defined once the first picture comes in.
     /** How tall a box is. */
     private int mBoxHeight;
@@ -56,68 +48,11 @@ public class Annotator implements Runnable {
     private int mBoxPadding;
     /** Distance between the box and the side and bottom of the pic. */
     private int mBoxMargin;
-    
-    private static final DecimalFormat COORD_FORMAT = new DecimalFormat("###.00000");
-    
-    public static enum ObjectType {
-        PICTURE,
-        STOP_COMMAND
-    }
-    
-    /**
-     * An IncomingPicture is one picture's filesystem and GPS location.  The
-     * thread parses through these and annotates them.  Or, with a certain type
-     * of IncomingPicture, indicates the end of the queue.
-     * 
-     * @author captainspam
-     */
-    public static class IncomingPicture {
-        protected String mFileLocation;
-        protected Location mGpsLocation;
-        
-        public IncomingPicture(String fileLocation, Location gpsLocation) {
-            mFileLocation = fileLocation;
-            mGpsLocation = gpsLocation;
-        }
-        
-        public String getFileLocation() {
-            return mFileLocation;
-        }
-
-        public Location getGpsLocation() {
-            return mGpsLocation;
-        }
-
-        /**
-         * Returns the type of command this is.
-         * 
-         * @return ObjectType.PICTURE if it's a picture, ObjectType.STOP_COMMAND if this is the end of the queue and the Annotator thread should stop now
-         */
-        public ObjectType getType() {
-            return ObjectType.PICTURE;
-        }
-    }
-    
-    /**
-     * EndOfPictures is a variant of IncomingPicture which stops the Annotator
-     * thread when it gets to it.
-     * 
-     * @author captainspam
-     */
-    public static class EndOfPictures extends IncomingPicture {
-        public EndOfPictures() {
-            super(null, null);
-        }
-        
-        public ObjectType getType() {
-            return ObjectType.STOP_COMMAND;
-        }
-    }
    
-    public Annotator(Context context, Geocoder geocoder) {
+    public Annotator(AssemblyLine al, Context context) {
         // Ready to annotate!
-        mPictureQueue = new LinkedBlockingQueue<IncomingPicture>();
-        mGeocoder = geocoder;
+        super(al);
+        mGeocoder = new Geocoder(context);
         mContext = context;
         
         mBackgroundPaint = new Paint();
@@ -126,56 +61,27 @@ public class Annotator implements Runnable {
         
         // The text paint gets defined first time we get a picture, as we need
         // to know how big the picture is to scale the text appropriately.
-        
-        mThread = new Thread(this);
-        mThread.setName("Picture annotation thread");
-        mThread.start();
-    }
-    
-    /**
-     * Adds a picture to be annotated.
-     * 
-     * @param pic Data for the picture
-     */
-    public void addPicture(IncomingPicture pic) {
-        if(mThread.isAlive()) {
-            // Yes, this is dangerous.  I'm doing this because I don't want to
-            // catch the exception and I'm pretty certain Dalvik will whine at
-            // me about blowing heap space LONG before there's two billion
-            // entries in the queue, which would cause this to fail.
-            mPictureQueue.offer(pic);
-        } else {
-            Log.e(DEBUG_TAG, "The Annotator thread isn't alive!");
-        }
-    }
-    
-    /**
-     * Injects a STOP_COMMAND into the queue.  Once the queue is otherwise done,
-     * this will stop it and terminate the thread.
-     */
-    public void finishQueue() {
-        addPicture(new EndOfPictures());
     }
 
     @Override
     public void run() {
-        ObjectType lastType;
+        AssemblyLine.OrderType lastType;
         
         // Right!  What we want to do is cycle through the queue until we run
         // into the stopper command.  take() will block the thread until there's
         // something there.
         do {
-            IncomingPicture curPic = null;
+            AssemblyLine.WorkOrder curPic = null;
             try {
                 // Block!
-                curPic = mPictureQueue.take();
+                curPic = mOrderQueue.take();
             } catch (InterruptedException e) {
                 // INTERRUPTION!  Assume this means we stop.
-                lastType = ObjectType.STOP_COMMAND;
+                lastType = AssemblyLine.OrderType.END_QUEUE;
                 continue;
             }
             lastType = curPic.getType();
-            if(lastType == ObjectType.STOP_COMMAND) continue;
+            if(lastType == AssemblyLine.OrderType.END_QUEUE) continue;
             
             Log.d(DEBUG_TAG, "Annotator thread has an image!  It's at " + curPic.getFileLocation());
             
@@ -203,8 +109,7 @@ public class Annotator implements Runnable {
                         e1.printStackTrace();
                         // What?  We were interrupted, too?!?  Geez.  Okay,
                         // fine, at this point, assume we've got nothing and
-                        // that we're bailing out.
-                        lastType = ObjectType.STOP_COMMAND;
+                        // don't know where we are.
                         break;
                     }
                 }
@@ -265,7 +170,7 @@ public class Annotator implements Runnable {
                 e.printStackTrace();
             }
             bitmap.recycle();
-        } while(lastType != ObjectType.STOP_COMMAND);
+        } while(lastType != AssemblyLine.OrderType.END_QUEUE);
         
         Log.d(DEBUG_TAG, "ENDING THREAD NOW...");
     }
@@ -308,5 +213,10 @@ public class Annotator implements Runnable {
                 canvas.getWidth() - mBoxPadding - textBounds.right - mBoxMargin,
                 baseline - (2 * mBoxPadding) - (mBoxHeight * (position - 1)),
                 mTextPaint);
+    }
+
+    @Override
+    public String getName() {
+        return "Annotator";
     }
 }

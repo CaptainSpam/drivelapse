@@ -2,14 +2,13 @@ package net.exclaimindustries.drivelapse;
 
 import android.app.Activity;
 import android.content.Context;
-import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
-import android.util.Log;
+//import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
@@ -40,7 +39,6 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
     
     private PictureTaker mPictureTaker;
     private Annotator mAnnotator;
-    private Geocoder mGeocoder;
     
     private ScrollView mScroller;
     private SurfaceView mSurface;
@@ -66,7 +64,6 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
         holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
 
         mPictureTaker = new PictureTaker(getPackageName());
-        mGeocoder = new Geocoder(this);
         
         PowerManager pl = (PowerManager)getSystemService(Context.POWER_SERVICE);
         mWakeLock = pl.newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK
@@ -81,10 +78,12 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
                 
                 // We create a new AssemblyLine and set of Stations every time
                 // we start.
+                if(mAssembly != null) mAssembly.addEndOrder();
+                
                 mAssembly = new AssemblyLine();
                 
-                if(mAnnotator != null) mAnnotator.finishQueue();
-                mAnnotator = new Annotator(DriveLapse.this, mGeocoder);
+                mAnnotator = new Annotator(mAssembly, DriveLapse.this);
+                mAssembly.addStation(mAnnotator);
                 mPictureTaker.restart(mAnnotator);
                 mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 100, DriveLapse.this);
                 mGoButton.setEnabled(false);
@@ -101,7 +100,7 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
             public void onClick(View v) {
                 // STOP
                 mLocationManager.removeUpdates(DriveLapse.this);
-                mAnnotator.finishQueue();
+                mAssembly.addEndOrder();
                 mGoButton.setEnabled(true);
                 if(mWakeLock.isHeld()) mWakeLock.release();
                 mTextView.append("--- END ---\nTotal clicks: " + mCount + "\n");
@@ -118,7 +117,7 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
 
     @Override
     public void finish() {
-        if(mAnnotator != null) mAnnotator.finishQueue();
+        if(mAssembly != null) mAssembly.addEndOrder();
         super.finish();
     }
 

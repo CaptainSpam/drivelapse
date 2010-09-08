@@ -48,7 +48,7 @@ public class AssemblyLine implements Runnable {
      * 
      * @author Nicholas Killewald
      */
-    public class WorkOrder {
+    public static class WorkOrder {
         protected String mFileLocation;
         protected Location mGpsLocation;
         protected Map<String, String> mExifTags;
@@ -91,7 +91,7 @@ public class AssemblyLine implements Runnable {
      * 
      * @author Nicholas Killewald
      */
-    public final class EndOrder extends WorkOrder {
+    public final static class EndOrder extends WorkOrder {
         public EndOrder() {
             super(null, null);
         }
@@ -110,7 +110,7 @@ public class AssemblyLine implements Runnable {
      * 
      * @author Nicholas Killewald
      */
-    public abstract class Station implements Runnable {
+    public abstract static class Station implements Runnable {
         /** The orders this station has yet to run. */
         protected LinkedBlockingQueue<WorkOrder> mOrderQueue;
         
@@ -128,6 +128,13 @@ public class AssemblyLine implements Runnable {
             mOrderQueue = new LinkedBlockingQueue<WorkOrder>();
             mThread = new Thread(this);
             mThread.setName(getName() + " Station");
+        }
+        
+        /**
+         * Starts the station in motion.
+         */
+        protected void start() {
+            mThread.start();
         }
         
         /**
@@ -178,10 +185,9 @@ public class AssemblyLine implements Runnable {
      * @param order the new WorkOrder to add
      */
     public void addWorkOrder(WorkOrder order) {
-        if(mThread != null && mThread.isAlive())
-            mWorkOrders.offer(order);
-        else
-            Log.e(DEBUG_TAG, "A WorkOrder came in, but the AssemblyLine isn't open!");
+        if(mThread == null || !mThread.isAlive())
+            Log.w(DEBUG_TAG, "A new WorkOrder came in, but the thread isn't running!");
+        mWorkOrders.offer(order);
     }
     
     /**

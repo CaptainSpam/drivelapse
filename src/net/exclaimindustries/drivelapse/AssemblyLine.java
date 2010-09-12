@@ -7,10 +7,15 @@
  */
 package net.exclaimindustries.drivelapse;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.LinkedList;
 
 import android.app.IntentService;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.location.Location;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -40,6 +45,7 @@ public class AssemblyLine extends IntentService {
     public static class WorkOrder implements Parcelable {
         protected String mFileLocation;
         protected Location mGpsLocation;
+        protected Canvas mWorkingCanvas;
         
         public static final Parcelable.Creator<WorkOrder> CREATOR = new Parcelable.Creator<WorkOrder>() {
             public WorkOrder createFromParcel(Parcel in) {
@@ -67,6 +73,20 @@ public class AssemblyLine extends IntentService {
 
         public Location getGpsLocation() {
             return mGpsLocation;
+        }
+        
+        /**
+         * Sets the canvas for future Stations to work on.  Note that, to save
+         * memory, this should ONLY be set right before the Stations kick in.
+         * 
+         * @param canvas Canvas with the appropriate bitmap data on it
+         */
+        private void setCanvas(Canvas canvas) {
+            mWorkingCanvas = canvas; 
+        }
+        
+        public Canvas getCanvas() {
+            return mWorkingCanvas;
         }
 
         @Override
@@ -138,9 +158,36 @@ public class AssemblyLine extends IntentService {
         
         stations.add(new Annotator(this));
         
-        for(Station st : stations) {
-            st.processOrder(order);
+        // Now, let's crack that image open and get some tasty, tasty data.
+        try {
+            Bitmap origBitmap = BitmapFactory.decodeFile(order.getFileLocation());
+            Bitmap bitmap = origBitmap.copy(origBitmap.getConfig(), true);
+            origBitmap.recycle();
+            origBitmap = null;
+            order.setCanvas(new Canvas(bitmap));
+            
+            // Fire up the stations!
+            for(Station st : stations) {
+                st.processOrder(order);
+            }
+            
+            // With all the stations done working on the canvas, write it back
+            // out to SD.  Or, y'know, wherever it leads.
+            File output = new File(order.getFileLocation());
+            
+            FileOutputStream ostream = null;
+            ostream = new FileOutputStream(output);
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, ostream);
+            ostream.close();
+            
+            bitmap.recycle();
+            bitmap = null;
+        } catch (Exception e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
         }
+
+        
         Log.d(DEBUG_TAG, "Order finished!");
     }
 }

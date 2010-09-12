@@ -7,8 +7,6 @@
  */
 package net.exclaimindustries.drivelapse;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.text.DateFormat;
 import java.util.Calendar;
@@ -17,8 +15,6 @@ import java.util.List;
 import net.exclaimindustries.drivelapse.AssemblyLine.WorkOrder;
 
 import android.content.Context;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
@@ -111,12 +107,7 @@ public class Annotator extends AssemblyLine.Station {
             }
         }
 
-        // Now, let's crack that image open and get some tasty, tasty data.
-        Bitmap origBitmap = BitmapFactory.decodeFile(order.getFileLocation());
-        Bitmap bitmap = origBitmap.copy(origBitmap.getConfig(), true);
-        origBitmap.recycle();
-        origBitmap = null;
-        Canvas canvas = new Canvas(bitmap);
+        Canvas canvas = order.getCanvas();
         
         // If we haven't made the text paint yet, we can use the bitmap to
         // decide how big to make it.
@@ -149,20 +140,6 @@ public class Annotator extends AssemblyLine.Station {
             // bailing out, we still have an annotation to wrap up.
             drawUnknownAddress(canvas);
         }
-        
-        File output = new File(order.getFileLocation());
-        
-        FileOutputStream ostream = null;
-        try {
-            ostream = new FileOutputStream(output);
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, ostream);
-            ostream.close();
-        } catch (Exception e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        }
-        bitmap.recycle();
-        bitmap = null;
         
         return false;
     }

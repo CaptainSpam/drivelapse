@@ -17,6 +17,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.location.Location;
+import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
@@ -46,6 +47,7 @@ public class AssemblyLine extends IntentService {
         protected String mFileLocation;
         protected Location mGpsLocation;
         protected Canvas mWorkingCanvas;
+        protected Bundle mExtraData;
         
         public static final Parcelable.Creator<WorkOrder> CREATOR = new Parcelable.Creator<WorkOrder>() {
             public WorkOrder createFromParcel(Parcel in) {
@@ -60,17 +62,31 @@ public class AssemblyLine extends IntentService {
         public WorkOrder(String fileLocation, Location gpsLocation) {
             mFileLocation = fileLocation;
             mGpsLocation = gpsLocation;
-            
+            mExtraData = new Bundle();
         }
         
         public WorkOrder(Parcel in) {
             readFromParcel(in);
         }
         
+        /**
+         * Gets the location of the image file this WorkOrder is working on.
+         * This is also where the processed image will be written.
+         * 
+         * @return the image's location
+         */
         public String getFileLocation() {
             return mFileLocation;
         }
 
+        /**
+         * Gets the GPS location of the user when the image attached to this
+         * WorkOrder was taken.  This isn't part of the extra data Bundle (yet)
+         * because this is sort of vital to what DriveLapse is doing in the
+         * first place.
+         * 
+         * @return the GPS location of the user
+         */
         public Location getGpsLocation() {
             return mGpsLocation;
         }
@@ -78,6 +94,7 @@ public class AssemblyLine extends IntentService {
         /**
          * Sets the canvas for future Stations to work on.  Note that, to save
          * memory, this should ONLY be set right before the Stations kick in.
+         * Also note that the Canvas isn't parcelable.
          * 
          * @param canvas Canvas with the appropriate bitmap data on it
          */
@@ -85,8 +102,25 @@ public class AssemblyLine extends IntentService {
             mWorkingCanvas = canvas; 
         }
         
+        /**
+         * Gets the current canvas this WorkOrder has.  This can be null if the
+         * AssemblyLine didn't create it yet.  Which shouldn't happen.
+         * 
+         * @return the current Canvas
+         */
         public Canvas getCanvas() {
             return mWorkingCanvas;
+        }
+        
+        /**
+         * Gets a Bundle of extra data.  This can include whatever nonsense you
+         * can think of (that can fit in a Bundle), and can be useful for
+         * passing data between Stations.
+         * 
+         * @return the current Bundle of data in this WorkOrder
+         */
+        public Bundle getExtraData() {
+            return mExtraData;
         }
 
         @Override
@@ -99,6 +133,7 @@ public class AssemblyLine extends IntentService {
             // WRITE!
             dest.writeString(mFileLocation);
             dest.writeParcelable(mGpsLocation, flags);
+            dest.writeBundle(mExtraData);
         }
         
         /**
@@ -111,6 +146,7 @@ public class AssemblyLine extends IntentService {
             // Go!
             mFileLocation = in.readString();
             mGpsLocation = (Location)(in.readParcelable(null));
+            mExtraData = in.readBundle();
         }
     }
     

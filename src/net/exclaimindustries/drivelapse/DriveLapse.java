@@ -164,6 +164,7 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
                 // We're recording!  LocationManager, back to work!  We need to
                 // get started immediately!
                 mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 100, this);
+                if(!mWakeLock.isHeld()) mWakeLock.acquire();
             }
             
             // And switch the buttons to whatever they need to be.

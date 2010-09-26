@@ -9,7 +9,6 @@ package net.exclaimindustries.drivelapse;
 
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.Serializable;
 
 import android.content.Context;
 import android.content.Intent;
@@ -21,9 +20,7 @@ import android.util.Log;
  * @author captainspam
  *
  */
-public class PictureTaker implements Serializable {
-    private static final long serialVersionUID = 1L;
-
+public class PictureTaker {
     private static final String DEBUG_TAG = "PictureTaker";
     
     private String mPackageName;
@@ -41,19 +38,41 @@ public class PictureTaker implements Serializable {
      * that past this, any old SinglePictures are invalid, and the behavior
      * from continuing to use them is undefined.
      * 
-     * @return true if the directory was created, false if not
+     * If the directory specified already exists, this will simply resume adding
+     * pictures to it.
+     * 
+     * @param currentTime the time of this session (and thus part of the name of
+     *                    the directory to be made); this is intended to be the
+     *                    current system time as retrieved by the static
+     *                    System.currentTimeMillis() method, and will be
+     *                    divided by 1000
+     * @return true if we're good to go, false if not
      */
-    public boolean restart() {
+    public boolean restart(long currentTime) {
         // Create the directory.
-        mDirName = "/sdcard/" + mPackageName + "/DriveLapse-" + (System.currentTimeMillis() / 1000) + "/";
-        boolean success = (new File(mDirName)).mkdirs();
+        mDirName = "/sdcard/" + mPackageName + "/DriveLapse-" + (currentTime / 1000) + "/";
         
-        if(success)
-            Log.d(DEBUG_TAG, "Directory " + mDirName + " created.");
-        else
-            Log.e(DEBUG_TAG, "Couldn't create " + mDirName + "!");
+        File dir = new File(mDirName);
         
-        return success;
+        if(dir.exists() && dir.isDirectory()) {
+            // Directory already exists, we're in a resume situation.
+            Log.i(DEBUG_TAG, "Directory " + mDirName + " already exists, using that...");
+            return true;
+        } else if(dir.exists() && !dir.isDirectory()) {
+            // That file exists, but ISN'T a directory?  What?
+            Log.e(DEBUG_TAG, mDirName + " already exists, but doesn't appear to be a directory!");
+            return false;
+        } else {
+            // Make the directory.
+            boolean success = dir.mkdirs();
+            
+            if(success)
+                Log.d(DEBUG_TAG, "Directory " + mDirName + " created.");
+            else
+                Log.e(DEBUG_TAG, "Couldn't create " + mDirName + "!");
+
+            return success;
+        }
     }
     
     /**

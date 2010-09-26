@@ -22,9 +22,8 @@ import android.hardware.Camera;
 public class DriveLapse extends Activity implements LocationListener, SurfaceHolder.Callback {
     private static final String DEBUG_TAG = "DriveLapse";
     
-    private static final String SAVE_ASSEMBLY_LINE = "AssemblyLine";
-    private static final String SAVE_PICTURE_TAKER = "PictureTaker";
     private static final String SAVE_STATE = "State";
+    private static final String SAVE_ACTIVE_DATE = "ActiveDate";
     
     /** The recording is stopped entirely.  Display the Go button. */
     private static final int STATE_STOP = 0;
@@ -55,6 +54,8 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
     
     private ScrollView mScroller;
     private SurfaceView mSurface;
+    
+    private long mActiveDate = -1;
     
     /** Called when the activity is first created. */
     @Override
@@ -93,7 +94,9 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
                 
                 // If we were stopped, make a new AssemblyLine.
                 if(mLastState == STATE_STOP) {
-                    mPictureTaker.restart();
+                    // Hold on to the current time.
+                    mActiveDate = System.currentTimeMillis();
+                    mPictureTaker.restart(mActiveDate);
                     mCount = 0;
                     logString = "\n\n--- START! ---\n";
                 } else {
@@ -114,6 +117,7 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
             public void onClick(View v) {
                 // STOP
                 switchButtonStates(STATE_STOP);
+                mActiveDate = -1;
                 mLocationManager.removeUpdates(DriveLapse.this);
                 if(mWakeLock.isHeld()) mWakeLock.release();
                 writeLog("--- END ---\nTotal clicks: " + mCount + "\n");
@@ -143,10 +147,14 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
         // Good.  Now, repopulate mAssembly and mPictureTaker if need be.  If
         // need DOES be, chances are we'll need to reset the go button, too.
         if(savedInstanceState != null
-                && savedInstanceState.containsKey(SAVE_PICTURE_TAKER)
-                && savedInstanceState.containsKey(SAVE_ASSEMBLY_LINE)
-                && savedInstanceState.containsKey(SAVE_STATE)) {
-            mPictureTaker = (PictureTaker)savedInstanceState.get(SAVE_PICTURE_TAKER);
+                && savedInstanceState.containsKey(SAVE_STATE)
+                && savedInstanceState.containsKey(SAVE_ACTIVE_DATE)) {
+            // We have a state and an active date (hopefully).  If said date is
+            // actually valid, restart the PictureTaker.
+            mActiveDate = savedInstanceState.getLong(SAVE_ACTIVE_DATE);
+            if(mActiveDate >= 0) {
+                mPictureTaker.restart(mActiveDate);
+            }
             
             // The state determines if we should be looking for locations right
             // away.
@@ -172,7 +180,8 @@ public class DriveLapse extends Activity implements LocationListener, SurfaceHol
         super.onSaveInstanceState(outState);
      
         // Right!  Save everything!
-        outState.putSerializable(SAVE_PICTURE_TAKER, mPictureTaker);
+        outState.putLong(SAVE_ACTIVE_DATE, mActiveDate);
+        outState.putInt(SAVE_STATE, mLastState);
     }
 
     @Override

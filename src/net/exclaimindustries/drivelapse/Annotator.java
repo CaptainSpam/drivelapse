@@ -132,7 +132,7 @@ public class Annotator extends AssemblyLine.Station {
             
             Address place = addresses.get(0);
             
-            drawFullAddress(canvas, place);
+            drawLessAddress(canvas, place);
         } else {
             // If we got here, this might mean that the addresses list is
             // empty.  However, it may also mean that it's null, meaning we
@@ -185,8 +185,9 @@ public class Annotator extends AssemblyLine.Station {
     }
     
     private void drawFullAddress(Canvas canvas, Address addr) {
-        drawLeftTextBox(canvas, addr.getAddressLine(0), 2);
-        drawLeftTextBox(canvas, addr.getAddressLine(1), 1);
+        for(int i = 0; i <= addr.getMaxAddressLineIndex(); i++) {
+            drawLeftTextBox(canvas, addr.getAddressLine(i), addr.getMaxAddressLineIndex() - i + 1);
+        }
     }
     
     private void drawLessAddress(Canvas canvas, Address addr) {
